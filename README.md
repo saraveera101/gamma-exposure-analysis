@@ -28,8 +28,8 @@ A comprehensive Python toolkit for analyzing options gamma exposure using the He
 
 1. **Clone the repository**:
 ```bash
-git clone https://github.com/yourusername/gamma_exposure.git
-cd gamma_exposure
+git clone https://github.com/saraveera101/gamma-exposure-analysis.git
+cd gamma-exposure-analysis
 ```
 
 2. **Install dependencies**:
