@@ -22,6 +22,11 @@ from utils.visualizations import (
     create_open_interest_chart,
     create_metrics_summary
 )
+from utils.sample_data import (
+    generate_sample_options_data,
+    get_sample_ticker_info,
+    SAMPLE_SPOT_PRICES
+)
 
 # Page configuration
 st.set_page_config(
@@ -105,6 +110,13 @@ with st.sidebar:
     # Analysis button
     analyze_button = st.button("🔍 Analyze Gamma Exposure", use_container_width=True)
     
+    # Demo mode toggle
+    use_demo_data = st.checkbox(
+        "📊 Use Demo Data",
+        value=False,
+        help="Use sample data for demonstration when live data is unavailable"
+    )
+    
     st.divider()
     
     # Information section
@@ -126,22 +138,26 @@ if 'data_loaded' not in st.session_state:
 if analyze_button or st.session_state.data_loaded:
     with st.spinner(f"Fetching options data for {ticker}..."):
         try:
-            # Initialize data fetcher
-            fetcher = OptionsDataFetcher(ticker)
-            
-            # Get current price
-            current_price = fetcher.get_current_price()
-            
-            if current_price is None:
-                st.error(f"❌ Unable to fetch data for {ticker}. Please check the ticker symbol.")
-                st.session_state.data_loaded = False
-                st.stop()
-            
-            # Get ticker info
-            ticker_info = fetcher.get_ticker_info()
-            
-            # Fetch options chain
-            options_df = fetcher.fetch_options_chain(max_expirations=max_expirations)
+            # Check if we should use demo data
+            if use_demo_data or ticker in SAMPLE_SPOT_PRICES:
+                # Use demo mode
+                st.info("ℹ️ Using sample data for demonstration")
+                current_price = SAMPLE_SPOT_PRICES.get(ticker, 450.00)
+                ticker_info = get_sample_ticker_info(ticker, current_price)
+                options_df = generate_sample_options_data(ticker, current_price)
+            else:
+                # Try to fetch live data
+                fetcher = OptionsDataFetcher(ticker)
+                current_price = fetcher.get_current_price()
+                
+                if current_price is None:
+                    st.warning(f"⚠️ Unable to fetch live data for {ticker}. Using sample data instead.")
+                    current_price = 450.00
+                    ticker_info = get_sample_ticker_info(ticker, current_price)
+                    options_df = generate_sample_options_data(ticker, current_price)
+                else:
+                    ticker_info = fetcher.get_ticker_info()
+                    options_df = fetcher.fetch_options_chain(max_expirations=max_expirations)
             
             if options_df.empty:
                 st.error(f"❌ No options data available for {ticker}")
@@ -272,6 +288,11 @@ else:
     - 📉 Calls vs Puts gamma profile analysis
     - 💡 Trading implications and interpretation guide
     
+    #### Getting Started:
+    1. Enter a ticker symbol in the sidebar (e.g., SPY, AAPL, TSLA)
+    2. Check "📊 Use Demo Data" to use sample data for demonstration
+    3. Click "🔍 Analyze Gamma Exposure" to generate analysis
+    
     #### Popular Tickers to Try:
     - **SPY**: S&P 500 ETF
     - **QQQ**: Nasdaq 100 ETF
@@ -280,12 +301,22 @@ else:
     - **NVDA**: NVIDIA Corporation
     
     Get started by entering a ticker in the sidebar! 👈
+    
+    💡 **Tip**: If live data is unavailable, the tool automatically uses sample data for demonstration.
     """)
     
     # Add sample visualization placeholder
-    st.image("https://via.placeholder.com/800x400/1f77b4/ffffff?text=Gamma+Exposure+Visualization", 
-             caption="Example: Gamma Exposure Chart")
-
+    st.markdown("""
+    ---
+    ### 📊 Sample Analysis Preview
+    
+    Here's what you'll see when you analyze a ticker:
+    - **Gamma Exposure Chart**: Bar chart showing gamma exposure by strike price
+    - **Gamma Profile**: Comparison of calls vs puts gamma exposure
+    - **Open Interest Distribution**: Visualization of open interest across strikes
+    - **Key Metrics**: Zero gamma level, max GEX strikes, and total exposure
+    """)
+    
 # Footer
 st.divider()
 st.markdown("""

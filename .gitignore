@@ -36,8 +36,9 @@ env/
 *.swo
 *~
 
-# Streamlit
-.streamlit/
+# Streamlit cache and secrets (keep config.toml)
+.streamlit/secrets.toml
+.streamlit/credentials.toml
 
 # Jupyter Notebook
 .ipynb_checkpoints
