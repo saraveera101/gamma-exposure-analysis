@@ -420,16 +420,6 @@ def main():
                         help="Number of months of expirations to display"
                     )
                 
-                # Display interactive heatmap with user-selected months
-                heatmap_fig = create_gamma_heatmap(
-                    results['gamma_matrix'], 
-                    results['current_price'], 
-                    results['ticker'],
-                    months_ahead
-                )
-                if heatmap_fig:
-                    st.plotly_chart(heatmap_fig, width='stretch')
-                
                 # Display data table with filtering
                 st.markdown("#### 📋 Gamma Matrix Data Table")
                 
@@ -488,18 +478,41 @@ def main():
                     
                     if key_strikes:
                         filtered_matrix = filtered_matrix.loc[list(key_strikes)]
-                        filtered_matrix = filtered_matrix.sort_index()
+                        filtered_matrix = filtered_matrix.sort_index(ascending=False)
+                else:
+                    # Sort all data from highest to lowest strike
+                    filtered_matrix = filtered_matrix.sort_index(ascending=False)
                 
-                # Format for display
-                formatted_matrix = filtered_matrix.round(0).astype(int)
+                # Format for display with k notation for values >= 1000
+                def format_gamma_values(value):
+                    """Format gamma values: use 'k' for thousands, regular numbers for < 1000"""
+                    if pd.isna(value) or value == 0:
+                        return "0"
+                    
+                    abs_value = abs(value)
+                    if abs_value >= 1000:
+                        # Format as k (thousands)
+                        formatted = f"{value/1000:.1f}k"
+                        # Remove unnecessary .0
+                        if formatted.endswith('.0k'):
+                            formatted = formatted[:-3] + 'k'
+                        return formatted
+                    else:
+                        # Format as regular integer
+                        return str(int(round(value)))
                 
-                # Create highlighting function for high/low values
+                # Create highlighting function for high/low values and king nodes (works on numerical data)
                 def highlight_high_low(df):
                     """
-                    Highlight highest and lowest values in each column
+                    Highlight highest and lowest values in each column, plus king nodes in yellow
                     """
                     # Create empty styling dataframe
                     styles = pd.DataFrame('', index=df.index, columns=df.columns)
+                    
+                    # Get king node strike price if available
+                    king_node_strike = None
+                    if results['levels'] and results['levels']['king_node'] is not None:
+                        king_node_strike = results['levels']['king_node']['strike']
                     
                     # For each column (expiration), find high/low values
                     for col in df.columns:
@@ -511,25 +524,58 @@ def main():
                             max_val = non_zero_data.max()
                             min_val = non_zero_data.min()
                             
-                            # Highlight maximum values (positive gamma - green background)
+                            # First, highlight king node strike in yellow (highest priority)
+                            if king_node_strike is not None and king_node_strike in df.index:
+                                king_mask = df.index == king_node_strike
+                                styles.loc[king_mask, col] = 'background-color: #FFD700; font-weight: bold; color: #B8860B; border: 2px solid #DAA520;'
+                            
+                            # Then highlight maximum values (positive gamma - green background)
+                            # Only apply if not already highlighted as king node
                             if max_val > 0:
                                 max_mask = (col_data == max_val) & (col_data != 0)
+                                if king_node_strike is not None:
+                                    max_mask = max_mask & (df.index != king_node_strike)
                                 styles.loc[max_mask, col] = 'background-color: #90EE90; font-weight: bold; color: #006400;'
                             
-                            # Highlight minimum values (negative gamma - red background)  
+                            # Highlight minimum values (negative gamma - red background)
+                            # Only apply if not already highlighted as king node  
                             if min_val < 0:
                                 min_mask = (col_data == min_val) & (col_data != 0)
+                                if king_node_strike is not None:
+                                    min_mask = min_mask & (df.index != king_node_strike)
                                 styles.loc[min_mask, col] = 'background-color: #FFB6C1; font-weight: bold; color: #8B0000;'
                     
                     return styles
                 
-                # Apply styling and display
-                styled_matrix = formatted_matrix.style.apply(highlight_high_low, axis=None)
+                # Apply highlighting to numerical data first
+                styled_matrix = filtered_matrix.style.apply(highlight_high_low, axis=None)
+                
+                # Then apply the k-notation formatting to the styled dataframe
+                def format_gamma_values(value):
+                    """Format gamma values: use 'k' for thousands, regular numbers for < 1000"""
+                    if pd.isna(value) or value == 0:
+                        return "0"
+                    
+                    abs_value = abs(value)
+                    if abs_value >= 1000:
+                        # Format as k (thousands)
+                        formatted = f"{value/1000:.1f}k"
+                        # Remove unnecessary .0
+                        if formatted.endswith('.0k'):
+                            formatted = formatted[:-3] + 'k'
+                        return formatted
+                    else:
+                        # Format as regular integer
+                        return str(int(round(value)))
+                
+                # Apply number formatting after styling
+                styled_matrix = styled_matrix.format(format_gamma_values)
                 
                 # Add legend for highlighting
                 st.markdown("""
                 **📊 Color Legend:**
-                - 🟢 **Green**: Highest positive gamma exposure for each expiration
+                - � **Yellow**: King Node (highest absolute gamma exposure strike price)
+                - �🟢 **Green**: Highest positive gamma exposure for each expiration
                 - 🔴 **Red**: Highest negative gamma exposure for each expiration
                 - ⚪ **White**: Other gamma exposure values
                 """)
@@ -707,6 +753,82 @@ def main():
                         - Mixed price behavior
                         - Monitor for regime changes
                         """)
+                
+                # Gamma Flip Points Analysis
+                if 'gamma_flip_points' in results['sentiment'] and results['sentiment']['gamma_flip_points']:
+                    st.markdown("#### ⚡ Gamma Flip Points Analysis")
+                    
+                    flip_points = results['sentiment']['gamma_flip_points']
+                    current_price = results['current_price']
+                    
+                    # Count and basic stats
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric(
+                            label="Total Flip Points",
+                            value=len(flip_points)
+                        )
+                    
+                    # Find nearest flip points above and below current price
+                    below_current = [fp for fp in flip_points if fp['strike'] < current_price]
+                    above_current = [fp for fp in flip_points if fp['strike'] > current_price]
+                    
+                    nearest_below = max(below_current, key=lambda x: x['strike']) if below_current else None
+                    nearest_above = min(above_current, key=lambda x: x['strike']) if above_current else None
+                    
+                    with col2:
+                        if nearest_below:
+                            distance_below = (current_price - nearest_below['strike']) / current_price * 100
+                            st.metric(
+                                label="Nearest Support Flip",
+                                value=f"${nearest_below['strike']:.0f}",
+                                delta=f"-{distance_below:.1f}%"
+                            )
+                        else:
+                            st.metric(label="Nearest Support Flip", value="None")
+                    
+                    with col3:
+                        if nearest_above:
+                            distance_above = (nearest_above['strike'] - current_price) / current_price * 100
+                            st.metric(
+                                label="Nearest Resistance Flip",
+                                value=f"${nearest_above['strike']:.0f}",
+                                delta=f"+{distance_above:.1f}%"
+                            )
+                        else:
+                            st.metric(label="Nearest Resistance Flip", value="None")
+                    
+                    # Key flip points near current price
+                    nearby_flips = [fp for fp in flip_points 
+                                  if abs(fp['strike'] - current_price) / current_price <= 0.15]  # Within 15%
+                    
+                    if nearby_flips:
+                        st.markdown("**🎯 Key Flip Points Near Current Price (±15%):**")
+                        flip_df = pd.DataFrame([
+                            {
+                                'Strike Price': f"${fp['strike']:.0f}",
+                                'Distance': f"{((fp['strike'] - current_price) / current_price * 100):+.1f}%",
+                                'Position': 'Above' if fp['strike'] > current_price else 'Below'
+                            }
+                            for fp in sorted(nearby_flips, key=lambda x: abs(x['strike'] - current_price))[:10]
+                        ])
+                        st.dataframe(flip_df, hide_index=True, width='stretch')
+                    
+                    # Trading implications
+                    st.markdown("**📊 Flip Points Trading Implications:**")
+                    if len(flip_points) > 30:
+                        st.warning("⚠️ **High Flip Point Density** - Complex gamma environment with many volatility shift zones")
+                    elif len(flip_points) > 15:
+                        st.info("📈 **Moderate Flip Point Activity** - Several key levels to monitor")
+                    else:
+                        st.success("✅ **Clean Gamma Structure** - Few but important flip points")
+                    
+                    st.markdown("""
+                    - **Flip Points** = Price levels where gamma exposure changes sign
+                    - **Support Flips** = Levels below current price where volatility behavior shifts
+                    - **Resistance Flips** = Levels above current price with potential volatility changes
+                    - **Near Price Flips** = Most relevant for short-term trading decisions
+                    """)
             
             # Dealer positioning
             if results['positioning']:
