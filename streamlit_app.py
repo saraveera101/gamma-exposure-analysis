@@ -296,6 +296,8 @@ def main():
             # Get all analysis components
             gamma_matrix = analyzer.aggregate_gamma_by_expiration()
             gamma_by_strike = analyzer.aggregate_gamma_by_strike()
+            vanna_matrix = analyzer.aggregate_vanna_by_expiration()
+            charm_matrix = analyzer.aggregate_charm_by_expiration()
             sentiment = analyzer.analyze_market_sentiment()
             levels = analyzer.identify_gamma_levels()
             
@@ -317,6 +319,8 @@ def main():
                 'ticker': ticker,
                 'current_price': current_price,
                 'gamma_matrix': gamma_matrix,
+                'vanna_matrix': vanna_matrix,
+                'charm_matrix': charm_matrix,
                 'gamma_by_strike': gamma_by_strike,
                 'sentiment': sentiment,
                 'levels': levels,
@@ -594,6 +598,130 @@ def main():
                     file_name=f"{results['ticker']}_gamma_matrix_{dt.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv"
                 )
+                
+                # Add some spacing between matrices
+                st.markdown("---")
+                
+                # Vanna Matrix Data Table
+                st.markdown("#### 📊 Vanna Matrix Data Table")
+                st.markdown("*Vanna exposure by strikes (rows) vs expirations (columns) - Values in USD*")
+                
+                if results['vanna_matrix'] is not None and not results['vanna_matrix'].empty:
+                    # Apply same filtering logic as gamma matrix
+                    filtered_vanna_matrix = results['vanna_matrix'].loc[
+                        (results['vanna_matrix'].index >= results['current_price'] - price_range) &
+                        (results['vanna_matrix'].index <= results['current_price'] + price_range)
+                    ]
+                    
+                    # Apply column filtering (same relevant_columns as gamma matrix)
+                    if relevant_columns:
+                        # Make sure columns exist in vanna matrix
+                        available_vanna_columns = [col for col in relevant_columns if col in filtered_vanna_matrix.columns]
+                        if available_vanna_columns:
+                            filtered_vanna_matrix = filtered_vanna_matrix[available_vanna_columns]
+                    
+                    if not show_zeros:
+                        # Remove rows and columns that are all zeros
+                        filtered_vanna_matrix = filtered_vanna_matrix.loc[~(filtered_vanna_matrix == 0).all(axis=1)]
+                        filtered_vanna_matrix = filtered_vanna_matrix.loc[:, ~(filtered_vanna_matrix == 0).all(axis=0)]
+                    
+                    # If "Show Only Key Levels" is selected, apply same filtering as gamma
+                    if highlight_only:
+                        if key_strikes:  # Use same key_strikes from gamma matrix
+                            available_strikes = [s for s in key_strikes if s in filtered_vanna_matrix.index]
+                            if available_strikes:
+                                filtered_vanna_matrix = filtered_vanna_matrix.loc[available_strikes]
+                                filtered_vanna_matrix = filtered_vanna_matrix.sort_index(ascending=False)
+                    else:
+                        # Sort all data from highest to lowest strike
+                        filtered_vanna_matrix = filtered_vanna_matrix.sort_index(ascending=False)
+                    
+                    if not filtered_vanna_matrix.empty:
+                        # Apply same styling as gamma matrix
+                        styled_vanna_matrix = filtered_vanna_matrix.style.apply(highlight_high_low, axis=None)
+                        styled_vanna_matrix = styled_vanna_matrix.format(format_gamma_values)
+                        
+                        st.dataframe(
+                            styled_vanna_matrix,
+                            width='stretch',
+                            height=400
+                        )
+                        
+                        # Download button for vanna matrix
+                        vanna_csv = results['vanna_matrix'].to_csv()
+                        st.download_button(
+                            label="📥 Download Vanna Matrix CSV",
+                            data=vanna_csv,
+                            file_name=f"{results['ticker']}_vanna_matrix_{dt.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv"
+                        )
+                    else:
+                        st.info("No vanna exposure data to display with current filters. Try adjusting the price range or enabling 'Show Zero Values'.")
+                        
+                else:
+                    st.warning("No vanna matrix data available")
+                
+                # Add some spacing
+                st.markdown("---")
+                
+                # Charm Matrix Data Table
+                st.markdown("#### ⏰ Charm Matrix Data Table")
+                st.markdown("*Charm exposure by strikes (rows) vs expirations (columns) - Values in USD*")
+                
+                if results['charm_matrix'] is not None and not results['charm_matrix'].empty:
+                    # Apply same filtering logic as gamma matrix
+                    filtered_charm_matrix = results['charm_matrix'].loc[
+                        (results['charm_matrix'].index >= results['current_price'] - price_range) &
+                        (results['charm_matrix'].index <= results['current_price'] + price_range)
+                    ]
+                    
+                    # Apply column filtering (same relevant_columns as gamma matrix)
+                    if relevant_columns:
+                        # Make sure columns exist in charm matrix
+                        available_charm_columns = [col for col in relevant_columns if col in filtered_charm_matrix.columns]
+                        if available_charm_columns:
+                            filtered_charm_matrix = filtered_charm_matrix[available_charm_columns]
+                    
+                    if not show_zeros:
+                        # Remove rows and columns that are all zeros
+                        filtered_charm_matrix = filtered_charm_matrix.loc[~(filtered_charm_matrix == 0).all(axis=1)]
+                        filtered_charm_matrix = filtered_charm_matrix.loc[:, ~(filtered_charm_matrix == 0).all(axis=0)]
+                    
+                    # If "Show Only Key Levels" is selected, apply same filtering as gamma
+                    if highlight_only:
+                        if key_strikes:  # Use same key_strikes from gamma matrix
+                            available_strikes = [s for s in key_strikes if s in filtered_charm_matrix.index]
+                            if available_strikes:
+                                filtered_charm_matrix = filtered_charm_matrix.loc[available_strikes]
+                                filtered_charm_matrix = filtered_charm_matrix.sort_index(ascending=False)
+                    else:
+                        # Sort all data from highest to lowest strike
+                        filtered_charm_matrix = filtered_charm_matrix.sort_index(ascending=False)
+                    
+                    if not filtered_charm_matrix.empty:
+                        # Apply same styling as gamma matrix
+                        styled_charm_matrix = filtered_charm_matrix.style.apply(highlight_high_low, axis=None)
+                        styled_charm_matrix = styled_charm_matrix.format(format_gamma_values)
+                        
+                        st.dataframe(
+                            styled_charm_matrix,
+                            width='stretch',
+                            height=400
+                        )
+                        
+                        # Download button for charm matrix
+                        charm_csv = results['charm_matrix'].to_csv()
+                        st.download_button(
+                            label="📥 Download Charm Matrix CSV",
+                            data=charm_csv,
+                            file_name=f"{results['ticker']}_charm_matrix_{dt.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv"
+                        )
+                    else:
+                        st.info("No charm exposure data to display with current filters. Try adjusting the price range or enabling 'Show Zero Values'.")
+                        
+                else:
+                    st.warning("No charm matrix data available")
                 
             else:
                 st.warning("No gamma matrix data available")
