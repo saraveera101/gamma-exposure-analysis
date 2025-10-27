@@ -99,7 +99,7 @@ class GammaExposureAnalyzer:
         sigma: Implied volatility
         """
         if T <= 0 or sigma <= 0:
-            return {'delta': 0, 'gamma': 0, 'vanna': 0}
+            return {'delta': 0, 'gamma': 0, 'vanna': 0, 'charm': 0}
         
         try:
             d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
@@ -108,17 +108,19 @@ class GammaExposureAnalyzer:
             # Calculate Greeks
             if option_type == 'call':
                 delta = stats.norm.cdf(d1)
+                charm = -stats.norm.pdf(d1) * (2 * r * T - d2 * sigma * np.sqrt(T)) / (2 * T * sigma * np.sqrt(T))
             else:  # put
                 delta = stats.norm.cdf(d1) - 1
+                charm = -stats.norm.pdf(d1) * (2 * r * T - d2 * sigma * np.sqrt(T)) / (2 * T * sigma * np.sqrt(T))
             
             gamma = stats.norm.pdf(d1) / (S * sigma * np.sqrt(T))
             vanna = -stats.norm.pdf(d1) * d2 / sigma
             
-            return {'delta': delta, 'gamma': gamma, 'vanna': vanna}
+            return {'delta': delta, 'gamma': gamma, 'vanna': vanna, 'charm': charm}
             
         except Exception as e:
             print(f"Error calculating Greeks: {e}")
-            return {'delta': 0, 'gamma': 0, 'vanna': 0}
+            return {'delta': 0, 'gamma': 0, 'vanna': 0, 'charm': 0}
     
     def calculate_gamma_exposure(self):
         """
@@ -174,6 +176,9 @@ class GammaExposureAnalyzer:
                     # Calculate vanna exposure
                     dealer_vanna_exposure = -option['openInterest'] * greeks['vanna'] * 100 * self.current_price * 0.01
                     
+                    # Calculate charm exposure
+                    dealer_charm_exposure = -option['openInterest'] * greeks['charm'] * 100 * self.current_price * 0.01
+                    
                     gamma_exposure_list.append({
                         'expiration': exp_date,
                         'days_to_expiration': option['days_to_expiration'],
@@ -184,8 +189,10 @@ class GammaExposureAnalyzer:
                         'delta': greeks['delta'],
                         'gamma': greeks['gamma'],
                         'vanna': greeks['vanna'],
+                        'charm': greeks['charm'],
                         'gamma_exposure': dealer_gamma_exposure,
                         'vanna_exposure': dealer_vanna_exposure,
+                        'charm_exposure': dealer_charm_exposure,
                         'last_price': option.get('lastPrice', 0),
                         'volume': option.get('volume', 0)
                     })
@@ -261,7 +268,55 @@ class GammaExposureAnalyzer:
         gamma_matrix = gamma_matrix.reindex(columns=sorted(gamma_matrix.columns))
         
         return gamma_matrix
-    
+
+    def aggregate_vanna_by_expiration(self):
+        """
+        Create vanna exposure matrix by strike and expiration
+        """
+        if self.gamma_exposure_data is None:
+            return None
+        
+        # Create pivot table
+        vanna_matrix = self.gamma_exposure_data.pivot_table(
+            index='strike',
+            columns='expiration',
+            values='vanna_exposure',
+            aggfunc='sum',
+            fill_value=0
+        )
+        
+        # Sort strikes
+        vanna_matrix = vanna_matrix.sort_index()
+        
+        # Sort columns by expiration date
+        vanna_matrix = vanna_matrix.reindex(columns=sorted(vanna_matrix.columns))
+        
+        return vanna_matrix
+
+    def aggregate_charm_by_expiration(self):
+        """
+        Create charm exposure matrix by strike and expiration
+        """
+        if self.gamma_exposure_data is None:
+            return None
+        
+        # Create pivot table
+        charm_matrix = self.gamma_exposure_data.pivot_table(
+            index='strike',
+            columns='expiration',
+            values='charm_exposure',
+            aggfunc='sum',
+            fill_value=0
+        )
+        
+        # Sort strikes
+        charm_matrix = charm_matrix.sort_index()
+        
+        # Sort columns by expiration date
+        charm_matrix = charm_matrix.reindex(columns=sorted(charm_matrix.columns))
+        
+        return charm_matrix
+
     def identify_gamma_levels(self):
         """
         Identify key gamma levels and their characteristics
